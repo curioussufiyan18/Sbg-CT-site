@@ -1,15 +1,10 @@
+
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false
-    }
-  }
+  { auth: { persistSession: false } }
 );
 
 const allowedRoles = [
@@ -65,7 +60,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    // 1. Save application in Supabase
+    // Save to Supabase first
     const { data, error } = await supabase
       .from('applications')
       .insert([{
@@ -81,25 +76,24 @@ module.exports = async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Supabase insert error:', error);
-
+      console.error('Supabase error:', error);
       return res.status(500).json({
         success: false,
-        message: 'Unable to save your application. Please try again.'
+        message: 'Unable to save application.'
       });
     }
 
-    // 2. Send the same application to Google Sheets
+    // Send to Google Sheets
     let sheetsSynced = false;
 
     try {
       const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
 
       if (!scriptUrl) {
-        throw new Error('GOOGLE_SCRIPT_URL is missing.');
+        throw new Error('GOOGLE_SCRIPT_URL is missing');
       }
 
-      const sheetData = new URLSearchParams({
+      const payload = new URLSearchParams({
         name: name.trim(),
         email: email.trim().toLowerCase(),
         whatsapp: whatsapp.trim(),
@@ -114,38 +108,38 @@ module.exports = async (req, res) => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: sheetData.toString(),
+        body: payload.toString(),
         redirect: 'follow'
       });
 
       const result = await response.json();
 
       if (!response.ok || result.success !== true) {
-        throw new Error('Google Sheets rejected the application.');
+        throw new Error('Google Sheets rejected request');
       }
 
       sheetsSynced = true;
+      console.log('Google Sheets sync successful:', data.id);
 
-    } catch (sheetError) {
-      console.error('Google Sheets sync error:', sheetError);
+    } catch (err) {
+      console.error('Google Sheets sync error:', err);
     }
 
-    // 3. Return success because Supabase has saved the application
     return res.status(201).json({
       success: true,
       applicationId: data.id,
       sheetsSynced,
       message: sheetsSynced
-        ? 'Application submitted successfully.'
-        : 'Application saved. Google Sheets sync needs attention.'
+        ? 'Application saved successfully.'
+        : 'Application saved in Supabase. Sheets sync failed.'
     });
 
-  } catch (error) {
-    console.error('Application API error:', error);
+  } catch (err) {
+    console.error('Application API error:', err);
 
     return res.status(500).json({
       success: false,
-      message: 'Server error. Please try again.'
+      message: 'Server error.'
     });
   }
 };
